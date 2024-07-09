@@ -10,12 +10,13 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"go.uber.org/zap"
 )
 
 type store interface {
   GetParticipant(ctx context.Context, participantID uuid.UUID) (pgstore.Participant, error)
-  ConfirmParticpant(ctx context.Context, participantID uuid.UUID) error
+  ConfirmParticipant(ctx context.Context, participantID uuid.UUID) error
 }
 
 type API struct {
@@ -50,7 +51,7 @@ func (api *API) PatchParticipantsParticipantIDConfirm(w http.ResponseWriter, r *
     )
   }
 
-  if err := api.store.ConfirmParticpant(r.Context(), id); err != nil {
+  if err := api.store.ConfirmParticipant(r.Context(), id); err != nil {
     api.logger.Error("failed to confirm participant", zap.Error(err), zap.String("participant_id", participantID))
     return spec.PatchParticipantsParticipantIDConfirmJSON400Response(
       spec.Error{Message: "something went wrong, try again"},
@@ -58,6 +59,10 @@ func (api *API) PatchParticipantsParticipantIDConfirm(w http.ResponseWriter, r *
   }
 
   return spec.PatchParticipantsParticipantIDConfirmJSON204Response(nil)
+}
+
+func NewAPI(pool *pgxpool.Pool, logger *zap.Logger) API {
+  return API{pgstore.New(pool),logger}
 }
 
 // Create a new trip
