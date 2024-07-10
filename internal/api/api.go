@@ -16,6 +16,10 @@ import (
 	"go.uber.org/zap"
 )
 
+type mailer interface {
+	SendConfirmTripEmailToTripOwner(tripID uuid.UUID) error
+}
+
 type store interface {
 	CreateTrip(context.Context, *pgxpool.Pool, spec.CreateTripRequest) (uuid.UUID, error)
 	GetParticipant(ctx context.Context, participantID uuid.UUID) (pgstore.Participant, error)
@@ -27,6 +31,7 @@ type API struct {
 	logger    *zap.Logger
 	validator *validator.Validate
 	pool      *pgxpool.Pool
+	mailer    mailer
 }
 
 // Confirms a participant on a trip.
@@ -66,9 +71,9 @@ func (api *API) PatchParticipantsParticipantIDConfirm(w http.ResponseWriter, r *
 	return spec.PatchParticipantsParticipantIDConfirmJSON204Response(nil)
 }
 
-func NewAPI(pool *pgxpool.Pool, logger *zap.Logger) API {
+func NewAPI(pool *pgxpool.Pool, logger *zap.Logger, mailer mailer) API {
 	validator := validator.New(validator.WithRequiredStructEnabled())
-	return API{pgstore.New(pool), logger, validator, pool}
+	return API{pgstore.New(pool), logger, validator, pool, mailer}
 }
 
 // Create a new trip
@@ -84,6 +89,15 @@ func (api *API) PostTrips(w http.ResponseWriter, r *http.Request) *spec.Response
 	}
 
 	tripID, err := api.store.CreateTrip(r.Context(), api.pool, body)
+
+	go func() {
+		if err := api.mailer.SendConfirmTripEmailToTripOwner(tripID); err != nil {
+			api.logger.Error(
+				"failed to send email on PostTrips",
+				zap.Error(err),
+				zap.String("trip_id", tripID.String()))
+		}
+	}()
 	if err != nil {
 		api.logger.Error("failed to create trip", zap.Error(err))
 		return spec.PostTripsJSON400Response(spec.Error{Message: "something went wrong, try again"})
