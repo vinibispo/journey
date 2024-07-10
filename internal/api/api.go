@@ -17,6 +17,7 @@ import (
 )
 
 type store interface {
+	CreateTrip(context.Context, *pgxpool.Pool, spec.CreateTripRequest) (uuid.UUID, error)
 	GetParticipant(ctx context.Context, participantID uuid.UUID) (pgstore.Participant, error)
 	ConfirmParticipant(ctx context.Context, participantID uuid.UUID) error
 }
@@ -25,6 +26,7 @@ type API struct {
 	store     store
 	logger    *zap.Logger
 	validator *validator.Validate
+	pool      *pgxpool.Pool
 }
 
 // Confirms a participant on a trip.
@@ -66,7 +68,7 @@ func (api *API) PatchParticipantsParticipantIDConfirm(w http.ResponseWriter, r *
 
 func NewAPI(pool *pgxpool.Pool, logger *zap.Logger) API {
 	validator := validator.New(validator.WithRequiredStructEnabled())
-	return API{pgstore.New(pool), logger, validator}
+	return API{pgstore.New(pool), logger, validator, pool}
 }
 
 // Create a new trip
@@ -81,7 +83,13 @@ func (api *API) PostTrips(w http.ResponseWriter, r *http.Request) *spec.Response
 		return spec.PostTripsJSON400Response(spec.Error{Message: "invalid input: " + err.Error()})
 	}
 
-	return spec.PostTripsJSON201Response(spec.CreateTripResponse{})
+	tripID, err := api.store.CreateTrip(r.Context(), api.pool, body)
+	if err != nil {
+		api.logger.Error("failed to create trip", zap.Error(err))
+		return spec.PostTripsJSON400Response(spec.Error{Message: "something went wrong, try again"})
+	}
+
+	return spec.PostTripsJSON201Response(spec.CreateTripResponse{TripID: tripID.String()})
 }
 
 // Get a trip details.
