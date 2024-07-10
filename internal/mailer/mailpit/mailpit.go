@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/wneessen/go-mail"
 )
 
@@ -18,8 +19,8 @@ type MailPit struct {
 	store store
 }
 
-func NewMailPit() MailPit {
-	return MailPit{}
+func NewMailPit(pool *pgxpool.Pool) MailPit {
+	return MailPit{pgstore.New(pool)}
 }
 
 func (m MailPit) SendConfirmTripEmailToTripOwner(tripId uuid.UUID) error {
@@ -50,7 +51,7 @@ func (m MailPit) SendConfirmTripEmailToTripOwner(tripId uuid.UUID) error {
 		trip.StartsAt.Time.Format(time.DateOnly),
 	))
 
-	client, err := mail.NewClient("localhost", mail.WithTLSPortPolicy(mail.NoTLS), mail.WithPort(1025))
+	client, err := mail.NewClient("mailpit", mail.WithTLSPortPolicy(mail.NoTLS), mail.WithPort(1025))
 
 	if err != nil {
 		return fmt.Errorf("mailpit: failed to create mail client for SendConfirmTripEmailToTripOwner: %w", err)
