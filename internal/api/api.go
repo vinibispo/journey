@@ -12,6 +12,7 @@ import (
 	"github.com/go-playground/validator/v10"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.uber.org/zap"
 )
@@ -25,6 +26,7 @@ type store interface {
 	GetParticipant(ctx context.Context, participantID uuid.UUID) (pgstore.Participant, error)
 	ConfirmParticipant(ctx context.Context, participantID uuid.UUID) error
 	GetTrip(ctx context.Context, tripID uuid.UUID) (pgstore.Trip, error)
+	UpdateTrip(ctx context.Context, body pgstore.UpdateTripParams) error
 }
 
 type API struct {
@@ -139,7 +141,45 @@ func (api *API) GetTripsTripID(w http.ResponseWriter, r *http.Request, tripID st
 // Update a trip.
 // (PUT /trips/{tripId})
 func (api *API) PutTripsTripID(w http.ResponseWriter, r *http.Request, tripID string) *spec.Response {
-	panic("not implemented") // TODO: Implement
+	id, err := uuid.Parse(tripID)
+	if err != nil {
+		api.logger.Error("failed to parse trip id", zap.Error(err), zap.String("trip_id", tripID))
+		return spec.PutTripsTripIDJSON400Response(spec.Error{Message: "invalid trip id"})
+	}
+
+	trip, err := api.store.GetTrip(r.Context(), id)
+
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return spec.PutTripsTripIDJSON400Response(spec.Error{Message: "trip not found"})
+		}
+		api.logger.Error("failed to get trip", zap.Error(err), zap.String("trip_id", tripID))
+		return spec.PutTripsTripIDJSON400Response(spec.Error{Message: "something went wrong, try again"})
+	}
+
+	var body spec.UpdateTripRequest
+
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		return spec.PutTripsTripIDJSON400Response(spec.Error{Message: "invalid JSON"})
+	}
+
+	if err := api.validator.Struct(body); err != nil {
+		return spec.PutTripsTripIDJSON400Response(spec.Error{Message: "invalid input: " + err.Error()})
+	}
+
+	if err := api.store.UpdateTrip(r.Context(), pgstore.UpdateTripParams{
+		ID:          id,
+		Destination: body.Destination,
+		StartsAt:    pgtype.Timestamp{Time: body.StartsAt, Valid: true},
+		EndsAt:      pgtype.Timestamp{Time: body.EndsAt, Valid: true},
+		IsConfirmed: trip.IsConfirmed,
+	}); err != nil {
+		api.logger.Error("failed to update trip", zap.Error(err))
+		return spec.PutTripsTripIDJSON400Response(spec.Error{Message: "something went wrong, try again"})
+
+	}
+
+	return spec.PutTripsTripIDJSON204Response(nil)
 }
 
 // Get a trip activities.
