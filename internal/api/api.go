@@ -5,11 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/mail"
+	"strings"
 	"time"
 
 	"journey/internal/api/spec"
 	"journey/internal/pgstore"
 
+	openapi_types "github.com/discord-gophers/goapi-gen/types"
 	"github.com/go-playground/validator/v10"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -33,6 +36,7 @@ type store interface {
 	CreateActivity(ctx context.Context, arg pgstore.CreateActivityParams) (uuid.UUID, error)
 	GetTripLinks(ctx context.Context, tripID uuid.UUID) ([]pgstore.Link, error)
 	CreateTripLink(ctx context.Context, arg pgstore.CreateTripLinkParams) (uuid.UUID, error)
+	GetParticipants(ctx context.Context, tripID uuid.UUID) ([]pgstore.Participant, error)
 }
 
 type API struct {
@@ -388,5 +392,36 @@ func (api *API) PostTripsTripIDLinks(w http.ResponseWriter, r *http.Request, tri
 // Get a trip participants.
 // (GET /trips/{tripId}/participants)
 func (api *API) GetTripsTripIDParticipants(w http.ResponseWriter, r *http.Request, tripID string) *spec.Response {
-	panic("not implemented") // TODO: Implement
+	id, err := uuid.Parse(tripID)
+	if err != nil {
+		return spec.GetTripsTripIDParticipantsJSON400Response(spec.Error{Message: "invalid trip id"})
+	}
+
+	participants, err := api.store.GetParticipants(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return spec.GetTripsTripIDParticipantsJSON400Response(spec.Error{Message: "trip not found"})
+		}
+		api.logger.Error("failed to get trip participants", zap.Error(err), zap.String("trip_id", tripID))
+		return spec.GetTripsTripIDParticipantsJSON400Response(spec.Error{Message: "something went wrong, try again"})
+	}
+
+	var output spec.GetTripParticipantsResponse
+
+	for _, participant := range participants {
+		var name string
+		parsedEmail, err := mail.ParseAddress(participant.Email)
+		if err == nil {
+			addr := parsedEmail.Address
+			name = addr[:strings.Index(addr, "@")]
+		}
+		output.Participants = append(output.Participants, spec.GetTripParticipantsResponseArray{
+			ID:          participant.ID.String(),
+			Email:       openapi_types.Email(parsedEmail.Address),
+			IsConfirmed: participant.IsConfirmed,
+			Name:        &name,
+		})
+	}
+
+	return spec.GetTripsTripIDParticipantsJSON200Response(output)
 }
