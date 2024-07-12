@@ -30,6 +30,7 @@ type store interface {
 	UpdateTrip(ctx context.Context, body pgstore.UpdateTripParams) error
 	GetTripActivities(ctx context.Context, tripID uuid.UUID) ([]pgstore.Activity, error)
 	CreateActivity(ctx context.Context, arg pgstore.CreateActivityParams) (uuid.UUID, error)
+	GetTripLinks(ctx context.Context, tripID uuid.UUID) ([]pgstore.Link, error)
 }
 
 type API struct {
@@ -284,7 +285,31 @@ func (api *API) PostTripsTripIDInvites(w http.ResponseWriter, r *http.Request, t
 // Get a trip links.
 // (GET /trips/{tripId}/links)
 func (api *API) GetTripsTripIDLinks(w http.ResponseWriter, r *http.Request, tripID string) *spec.Response {
-	panic("not implemented") // TODO: Implement
+	id, err := uuid.Parse(tripID)
+	if err != nil {
+		return spec.GetTripsTripIDLinksJSON400Response(spec.Error{Message: "invalid trip id"})
+	}
+
+	links, err := api.store.GetTripLinks(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return spec.GetTripsTripIDLinksJSON400Response(spec.Error{Message: "trip not found"})
+		}
+		api.logger.Error("failed to get trip links", zap.Error(err), zap.String("trip_id", tripID))
+		return spec.GetTripsTripIDLinksJSON400Response(spec.Error{Message: "something went wrong, try again"})
+	}
+
+	var output spec.GetLinksResponse
+
+	for _, link := range links {
+		output.Links = append(output.Links, spec.GetLinksResponseArray{
+			ID:    link.ID.String(),
+			Title: link.Title,
+			URL:   link.Url,
+		})
+	}
+
+	return spec.GetTripsTripIDLinksJSON200Response(output)
 }
 
 // Create a trip link.
