@@ -20,6 +20,7 @@ import (
 
 type mailer interface {
 	SendConfirmTripEmailToTripOwner(tripID uuid.UUID) error
+	SendTripConfirmedEmails(tripID uuid.UUID) error
 }
 
 type store interface {
@@ -274,7 +275,43 @@ func (api *API) PostTripsTripIDActivities(w http.ResponseWriter, r *http.Request
 // Confirm a trip and send e-mail invitations.
 // (GET /trips/{tripId}/confirm)
 func (api *API) GetTripsTripIDConfirm(w http.ResponseWriter, r *http.Request, tripID string) *spec.Response {
-	panic("not implemented") // TODO: Implement
+	id, err := uuid.Parse(tripID)
+	if err != nil {
+		api.logger.Error("failed to parse trip id", zap.Error(err), zap.String("trip_id", tripID))
+		return spec.GetTripsTripIDConfirmJSON400Response(spec.Error{Message: "invalid trip id"})
+	}
+
+	trip, err := api.store.GetTrip(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return spec.GetTripsTripIDConfirmJSON400Response(spec.Error{Message: "trip not found"})
+		}
+		api.logger.Error("failed to get trip", zap.Error(err), zap.String("trip_id", tripID))
+		return spec.GetTripsTripIDConfirmJSON400Response(spec.Error{Message: "something went wrong, try again"})
+	}
+
+	if trip.IsConfirmed {
+		return spec.GetTripsTripIDConfirmJSON400Response(spec.Error{Message: "trip already confirmed"})
+	}
+
+	if err := api.store.UpdateTrip(r.Context(), pgstore.UpdateTripParams{
+		ID:          id,
+		Destination: trip.Destination,
+		StartsAt:    trip.StartsAt,
+		EndsAt:      trip.EndsAt,
+		IsConfirmed: true,
+	}); err != nil {
+		api.logger.Error("failed to confirm trip", zap.Error(err))
+		return spec.GetTripsTripIDConfirmJSON400Response(spec.Error{Message: "something went wrong, try again"})
+	}
+
+	go func() {
+		if err := api.mailer.SendTripConfirmedEmails(id); err != nil {
+			api.logger.Error("failed to send trip confirmed emails", zap.Error(err), zap.String("trip_id", tripID))
+		}
+	}()
+
+	return spec.GetTripsTripIDConfirmJSON204Response(nil)
 }
 
 // Invite someone to the trip.
