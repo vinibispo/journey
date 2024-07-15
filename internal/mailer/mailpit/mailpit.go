@@ -14,6 +14,7 @@ import (
 type store interface {
 	GetTrip(context.Context, uuid.UUID) (pgstore.Trip, error)
 	GetParticipants(context.Context, uuid.UUID) ([]pgstore.Participant, error)
+	GetParticipant(context.Context, uuid.UUID) (pgstore.Participant, error)
 }
 
 type MailPit struct {
@@ -94,6 +95,37 @@ func (m MailPit) SendTripConfirmedEmails(tripId uuid.UUID) error {
 		if err := client.DialAndSend(msg); err != nil {
 			return fmt.Errorf("mailpit: failed to send email for SendTripConfirmedEmails: %w", err)
 		}
+	}
+
+	return nil
+}
+
+func (m MailPit) SendTripConfirmedEmail(tripID, participantID uuid.UUID) error {
+	participant, err := m.store.GetParticipant(context.Background(), participantID)
+
+	if err != nil {
+		return fmt.Errorf("mailpit: failed to get participant for SendTripConfirmedEmail: %w", err)
+	}
+
+	msg := mail.NewMsg()
+	if err := msg.From("mailpit@journey.com"); err != nil {
+		return fmt.Errorf("mailpit: failed to set From in email for SendTripConfirmedEmail: %w", err)
+	}
+
+	if err := msg.To(participant.Email); err != nil {
+		return fmt.Errorf("mailpit: failed to set To in email for SendTripConfirmedEmail: %w", err)
+	}
+
+	msg.Subject("Confirme sua viagem")
+	msg.SetBodyString(mail.TypeTextPlain, "Você deve confirmar a sua viagem")
+	client, err := mail.NewClient("mailpit", mail.WithTLSPortPolicy(mail.NoTLS), mail.WithPort(1025))
+
+	if err != nil {
+		return fmt.Errorf("mailpit: failed to create mail client for SendTripConfirmedEmail: %w", err)
+	}
+
+	if err := client.DialAndSend(msg); err != nil {
+		return fmt.Errorf("mailpit: failed to send email for SendTripConfirmedEmail: %w", err)
 	}
 
 	return nil
