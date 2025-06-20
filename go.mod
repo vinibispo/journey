@@ -5,7 +5,7 @@ go 1.22.1
 require (
 	github.com/discord-gophers/goapi-gen v0.3.0
 	github.com/getkin/kin-openapi v0.126.0
-	github.com/go-chi/chi/v5 v5.1.0
+	github.com/go-chi/chi/v5 v5.2.2
 	github.com/go-chi/render v1.0.3
 	github.com/go-playground/validator/v10 v10.22.0
 	github.com/google/uuid v1.6.0
